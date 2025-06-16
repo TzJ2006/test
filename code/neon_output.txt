@@ -1,0 +1,3 @@
+==== NEON FLOPS TEST ====
+Threads: 14
+  Total: 77.529701 GFLOPS

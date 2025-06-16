@@ -1,0 +1,7 @@
+==== macOS CPU FLOPS Test ====
+Duration: 10.000000 seconds
+Running single-thread test...
+  Single-thread: 11.062309 GFLOPS
+
+Running multi-thread (14 threads) test...
+  Multi-thread total: 114.555246 GFLOPS

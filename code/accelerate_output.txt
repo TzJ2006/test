@@ -1,0 +1,3 @@
+==== Accelerate DGEMM ILP64 TEST ====
+Matrix size: 1024 x 1024
+  DGEMM GFLOPS: 696.643695
