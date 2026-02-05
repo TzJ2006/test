@@ -201,7 +201,8 @@ class GpuBenchmark:
     def _benchmark_device_dtype(self, device: Dict[str, Any],
                                  dtype_name: str, dtype,
                                  warmup_iters: int = 10, measure_iters: int = 50,
-                                 show_progress: bool = True) -> Dict[str, Any]:
+                                 show_progress: bool = True,
+                                 progress_bar=None) -> Dict[str, Any]:
         """
         Benchmark a specific device and data type.
 
@@ -211,6 +212,8 @@ class GpuBenchmark:
             dtype: PyTorch data type
             warmup_iters: Number of warmup iterations
             measure_iters: Number of measurement iterations (used if duration is None)
+            show_progress: Whether to show progress (unused, kept for compatibility)
+            progress_bar: Optional tqdm progress bar for updates
 
         Returns:
             Result dictionary with statistics.
@@ -260,11 +263,17 @@ class GpuBenchmark:
 
         # Measurement
         times = []
-        for _ in range(measure_iters):
+        for i in range(measure_iters):
             start = time.perf_counter()
             _ = a @ b
             self._synchronize(device_obj)
             times.append(time.perf_counter() - start)
+
+            # Update progress bar if provided
+            if progress_bar and measure_iters > 1:
+                progress = int((i + 1) / measure_iters * 100)
+                progress_bar.n = progress
+                progress_bar.refresh()
 
         # Calculate median
         import numpy as np
@@ -327,11 +336,12 @@ class GpuBenchmark:
             for dtype_name, dtype in supported_dtypes:
                 # Use tqdm if available and duration is set
                 if HAS_TQDM and self.duration and self.duration >= 5:
-                    # For longer benchmarks, show estimated time
+                    # For longer benchmarks, show progress
                     desc = f"    [{dtype_name}]"
                     with tqdm(total=100, desc=desc, unit='%', leave=False, ncols=80) as pbar:
-                        result = self._benchmark_device_dtype(device, dtype_name, dtype, show_progress=False)
-                        pbar.update(100)
+                        result = self._benchmark_device_dtype(device, dtype_name, dtype,
+                                                            show_progress=False, progress_bar=pbar)
+                        pbar.update(100)  # Ensure it shows 100% complete
                         if 'error' in result:
                             tqdm.write(f"      ✗ ({result['error'][:30]}...)")
                         else:

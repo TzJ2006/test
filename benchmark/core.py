@@ -14,9 +14,10 @@ from pathlib import Path
 
 def fmt_flops(flops: float) -> str:
     """Format FLOPS value to appropriate unit."""
-    for unit in ['PFLOPS', 'TFLOPS', 'GFLOPS', 'MFLOPS', 'KFLOPS']:
-        if flops >= 1e15:
-            return f"{flops/1e15:,.2f} {unit}/s"
+    for unit, threshold in [('PFLOPS', 1e15), ('TFLOPS', 1e12),
+                            ('GFLOPS', 1e9), ('MFLOPS', 1e6), ('KFLOPS', 1e3)]:
+        if flops >= threshold:
+            return f"{flops/threshold:,.2f} {unit}/s"
     return f"{flops:,.2f} FLOPS/s"
 
 
@@ -144,10 +145,10 @@ class BaseBenchmark(ABC):
         info = self.get_info()
 
         # Calculate FLOPS based on median time
-        iterations = self.timer.measure_iters
-        total_flops = self.get_flops(iterations)
+        # FLOPS per single iteration (fixed value, independent of measurement iterations)
+        flops_per_iteration = self.get_flops(1)
         median_time = stats['median']
-        flops_per_sec = total_flops / median_time if median_time > 0 else 0
+        flops_per_sec = flops_per_iteration / median_time if median_time > 0 else 0
 
         result = {
             **info,
