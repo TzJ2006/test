@@ -4,6 +4,12 @@ GPU benchmarking - supports CUDA, MPS, XPU with all precision levels.
 import time
 from typing import Dict, Any, List, Tuple, Optional
 
+try:
+    from tqdm import tqdm
+    HAS_TQDM = True
+except ImportError:
+    HAS_TQDM = False
+
 from .core import BaseBenchmark, calculate_flops_gemm
 
 
@@ -32,9 +38,10 @@ class GpuBenchmark:
         ('BF16', 'bfloat16'),
     ]
 
-    def __init__(self, matrix_size: int = None, iterations: int = None):
+    def __init__(self, matrix_size: int = None, iterations: int = None, duration: float = None):
         self.matrix_size = matrix_size or self.MATRIX_SIZE
         self.iterations = iterations or self.ITERATIONS
+        self.duration = duration
 
         # Detect available backends
         self.backends = self._detect_backends()
@@ -193,9 +200,17 @@ class GpuBenchmark:
 
     def _benchmark_device_dtype(self, device: Dict[str, Any],
                                  dtype_name: str, dtype,
-                                 warmup_iters: int = 10, measure_iters: int = 50) -> Dict[str, Any]:
+                                 warmup_iters: int = 10, measure_iters: int = 50,
+                                 show_progress: bool = True) -> Dict[str, Any]:
         """
         Benchmark a specific device and data type.
+
+        Args:
+            device: Device info dictionary
+            dtype_name: Name of data type (e.g., 'FP32')
+            dtype: PyTorch data type
+            warmup_iters: Number of warmup iterations
+            measure_iters: Number of measurement iterations (used if duration is None)
 
         Returns:
             Result dictionary with statistics.
@@ -206,7 +221,7 @@ class GpuBenchmark:
         device_index = device['index']
         device_obj = torch.device(f"{backend}:{device_index}")
 
-        # Create tensors (reuse to reduce overhead)
+        # Create tensors (reuse to reduce overhead) - pre-generate before timing
         a, b = self._create_tensors(self.matrix_size, dtype, device_obj)
 
         # Test matmul support
@@ -230,6 +245,18 @@ class GpuBenchmark:
         for _ in range(warmup_iters):
             _ = a @ b
             self._synchronize(device_obj)
+
+        # Determine number of iterations
+        if self.duration is not None:
+            # Calibrate: run a few times to estimate single iteration time
+            calib_times = []
+            for _ in range(5):
+                start = time.perf_counter()
+                _ = a @ b
+                self._synchronize(device_obj)
+                calib_times.append(time.perf_counter() - start)
+            avg_time = sum(calib_times) / len(calib_times)
+            measure_iters = max(1, int(self.duration / avg_time))
 
         # Measurement
         times = []
@@ -287,7 +314,6 @@ class GpuBenchmark:
 
         results = []
         total_benchmarks = sum(len(self._get_supported_dtypes(d)) for d in self.devices)
-        current = 0
 
         print(f"Running GPU benchmarks...")
         print(f"  Detected {len(self.devices)} device(s) with {len(self.backends)} backend(s)\n")
@@ -299,15 +325,24 @@ class GpuBenchmark:
             supported_dtypes = self._get_supported_dtypes(device)
 
             for dtype_name, dtype in supported_dtypes:
-                current += 1
-                print(f"    [{current}/{total_benchmarks}] {dtype_name}...", end=' ', flush=True)
-
-                result = self._benchmark_device_dtype(device, dtype_name, dtype)
-
-                if 'error' in result:
-                    print(f"✗ ({result['error'][:30]}...)")
+                # Use tqdm if available and duration is set
+                if HAS_TQDM and self.duration and self.duration >= 5:
+                    # For longer benchmarks, show estimated time
+                    desc = f"    [{dtype_name}]"
+                    with tqdm(total=100, desc=desc, unit='%', leave=False, ncols=80) as pbar:
+                        result = self._benchmark_device_dtype(device, dtype_name, dtype, show_progress=False)
+                        pbar.update(100)
+                        if 'error' in result:
+                            tqdm.write(f"      ✗ ({result['error'][:30]}...)")
+                        else:
+                            tqdm.write(f"      ✓ {result['flops_formatted']}")
                 else:
-                    print(f"✓ {result['flops_formatted']}")
+                    print(f"    {dtype_name}...", end=' ', flush=True)
+                    result = self._benchmark_device_dtype(device, dtype_name, dtype)
+                    if 'error' in result:
+                        print(f"✗ ({result['error'][:30]}...)")
+                    else:
+                        print(f"✓ {result['flops_formatted']}")
 
                 results.append(result)
 
@@ -315,16 +350,18 @@ class GpuBenchmark:
         return results
 
 
-def run_all_gpu_benchmarks(matrix_size: int = None, iterations: int = None) -> list:
+def run_all_gpu_benchmarks(matrix_size: int = None, iterations: int = None,
+                           duration: float = None) -> list:
     """
     Run all GPU benchmarks and return results.
 
     Args:
         matrix_size: Size of matrices for GEMM benchmark
         iterations: Number of iterations (not used, kept for compatibility)
+        duration: Target duration per benchmark in seconds
 
     Returns:
         List of benchmark result dictionaries.
     """
-    bench = GpuBenchmark(matrix_size=matrix_size, iterations=iterations)
+    bench = GpuBenchmark(matrix_size=matrix_size, iterations=iterations, duration=duration)
     return bench.run_all()

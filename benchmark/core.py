@@ -33,11 +33,22 @@ def calculate_flops_scalar(iterations: int) -> int:
 class RobustTimer:
     """
     Robust timer with warmup and outlier removal using IQR method.
+    Supports both fixed iterations and duration-based measurement.
     """
 
-    def __init__(self, warmup_iters: int = 100, measure_iters: int = 50):
+    def __init__(self, warmup_iters: int = 100, measure_iters: int = 50,
+                 target_duration: float = None):
+        """
+        Initialize timer.
+
+        Args:
+            warmup_iters: Number of warmup iterations
+            measure_iters: Number of measurement iterations (used if target_duration is None)
+            target_duration: Target duration in seconds (overrides measure_iters)
+        """
         self.warmup_iters = warmup_iters
         self.measure_iters = measure_iters
+        self.target_duration = target_duration
 
     def time(self, func: Callable[[], float]) -> Dict[str, float]:
         """
@@ -52,6 +63,17 @@ class RobustTimer:
         # Warmup phase
         for _ in range(self.warmup_iters):
             func()
+
+        # If target_duration is specified, estimate iterations first
+        if self.target_duration is not None:
+            # Quick calibration run
+            calib_times = []
+            for _ in range(5):
+                calib_times.append(func())
+            avg_time = np.mean(calib_times)
+
+            # Calculate iterations needed for target duration
+            self.measure_iters = max(1, int(self.target_duration / avg_time))
 
         # Measurement phase
         times = []
@@ -78,6 +100,8 @@ class RobustTimer:
             'min': float(np.min(filtered_times)),
             'max': float(np.max(filtered_times)),
             'outliers_removed': len(times) - len(filtered_times),
+            'actual_iters': len(filtered_times),
+            'actual_duration': float(np.sum(filtered_times)),
         }
 
 

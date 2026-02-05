@@ -16,11 +16,8 @@ A unified benchmarking solution for measuring CPU and GPU FLOPS performance acro
 ### Installation
 
 ```bash
-# Install from requirements.txt
-pip install -r requirements.txt
-
-# Or install manually
-pip install torch numpy pandas plotly tqdm
+# Required dependencies
+pip install torch numpy pandas plotly
 
 # Optional dependencies
 pip install threadpoolctl  # For precise BLAS thread control
@@ -44,9 +41,6 @@ python -m benchmark.cli --report-only
 
 # Run benchmarks + auto-generate report
 python -m benchmark.cli --report
-
-# Control benchmark duration (default 10 seconds, use 60 for 1 minute)
-python -m benchmark.cli --duration 60
 ```
 
 ### Output
@@ -119,13 +113,6 @@ python -m benchmark.cli --output my_results.csv
 # Custom matrix size
 python -m benchmark.cli --matrix-size 8192
 
-# Control benchmark duration per test (in seconds)
-python -m benchmark.cli --duration 60  # 1 minute per benchmark
-python -m benchmark.cli --duration 300  # 5 minutes per benchmark
-
-# Run without saving to CSV
-python -m benchmark.cli --no-save
-
 # Generate report from specific CSV
 python -m benchmark.cli --report-only --input-csv my_results.csv --report-output report.html
 
@@ -134,9 +121,6 @@ python -m benchmark.cli --info
 
 # Quiet mode (minimal output)
 python -m benchmark.cli --quiet
-
-# Verbose mode (detailed output)
-python -m benchmark.cli --verbose
 ```
 
 ## CSV Format

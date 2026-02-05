@@ -20,6 +20,12 @@ python -m benchmark.cli --cpu-only
 # GPU benchmarks only
 python -m benchmark.cli --gpu-only
 
+# Run without saving to CSV (for testing)
+python -m benchmark.cli --no-save
+
+# Show system information only
+python -m benchmark.cli --info
+
 # Generate HTML report from CSV
 python -m benchmark.cli --report-only
 
@@ -29,11 +35,19 @@ python -m benchmark.cli --report
 # Custom output paths
 python -m benchmark.cli --output my_results.csv
 python -m benchmark.cli --report-only --input-csv my_results.csv --report-output report.html
+
+# Custom matrix size (affects BLAS and GPU benchmarks)
+python -m benchmark.cli --matrix-size 8192
+
+# Control benchmark duration per test (default: 10 seconds)
+python -m benchmark.cli --duration 60  # 1 minute per benchmark
+python -m benchmark.cli --duration 300  # 5 minutes per benchmark
 ```
 
 ### Default Parameters
+- **Duration**: 10 seconds per benchmark (use `--duration` to change)
 - CPU single-core: 10,000,000 iterations (scalar operations)
-- CPU BLAS: matrix_size=2048 (single-core), 4096 (all-cores)
+- CPU BLAS: matrix_size=8192 (single-core), 4096 (all-cores)
 - GPU: matrix_size=2048, iterations=50
 
 ## Architecture
@@ -85,7 +99,8 @@ benchmark/
 
 **cli.py** - Command-line interface
 - Arguments: `--cpu-only`, `--gpu-only`, `--report`, `--report-only`
-- Output options: `--output`, `--report-output`, `--input-csv`
+- Output options: `--output`, `--report-output`, `--input-csv`, `--no-save`
+- Parameters: `--matrix-size`, `--iterations`, `--duration` (seconds per benchmark)
 - Display modes: `--quiet`, `--verbose`, `--info`
 
 ## Implementation Notes
@@ -122,10 +137,13 @@ benchmark/
 
 ## CSV Data Flow
 
-1. **Append Mode**: Each benchmark run appends to CSV (never overwrites)
-2. **Historical Data**: CSV contains all runs across all hardware
-3. **Report Generation**: Reads ALL data from CSV for leaderboards/charts
-4. **Self-Growing**: New hardware automatically included when report is regenerated
+The CSV file uses **append mode** - it never overwrites existing data. This design enables:
+1. **Accumulation**: Run benchmarks on different hardware, results append to the same file
+2. **Historical Tracking**: All runs are preserved with timestamps
+3. **Leaderboard Generation**: Report reads ALL data and shows best performance per hardware
+4. **Self-Growing**: New hardware automatically appears when report is regenerated
+
+**Important**: The `--output` option specifies which CSV to write to. If using a custom CSV for report generation, specify it with `--input-csv`.
 
 ## Dependencies
 
@@ -134,6 +152,7 @@ benchmark/
 - `numpy>=1.24.0` - CPU BLAS operations
 - `pandas>=2.0.0` - CSV processing
 - `plotly>=5.18.0` - HTML chart generation
+- `tqdm>=4.65.0` - Progress bars
 
 **Optional:**
 - `threadpoolctl>=3.1.0` - Precise BLAS thread control
@@ -158,8 +177,11 @@ Edit `report.py`:
 ### Testing Changes
 
 ```bash
-# Quick test (CPU only, fast)
-python -m benchmark.cli --cpu-only --matrix-size 1024 --no-save
+# Quick test (CPU only, small matrix, no CSV save, short duration)
+python -m benchmark.cli --cpu-only --matrix-size 1024 --duration 1 --no-save
+
+# Show system info without running benchmarks
+python -m benchmark.cli --info
 
 # Full test with report
 python -m benchmark.cli --report

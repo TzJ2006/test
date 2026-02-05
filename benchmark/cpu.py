@@ -12,6 +12,12 @@ try:
 except ImportError:
     HAS_THREADPOOLCTL = False
 
+try:
+    from tqdm import tqdm
+    HAS_TQDM = True
+except ImportError:
+    HAS_TQDM = False
+
 from .core import BaseBenchmark, calculate_flops_scalar, calculate_flops_gemm
 
 
@@ -71,6 +77,9 @@ class CpuAllCoresBenchmark(BaseBenchmark):
         super().__init__(warmup_iters, measure_iters)
         self.matrix_size = matrix_size or self.MATRIX_SIZE
         self.num_threads = num_threads or multiprocessing.cpu_count()
+        # Pre-generate matrices to exclude generation time from measurement
+        self.A = np.random.random((self.matrix_size, self.matrix_size)).astype(np.float32)
+        self.B = np.random.random((self.matrix_size, self.matrix_size)).astype(np.float32)
 
     def get_info(self) -> Dict[str, Any]:
         return {
@@ -83,16 +92,12 @@ class CpuAllCoresBenchmark(BaseBenchmark):
         }
 
     def run_iteration(self) -> None:
-        # Generate matrices
-        A = np.random.random((self.matrix_size, self.matrix_size)).astype(np.float32)
-        B = np.random.random((self.matrix_size, self.matrix_size)).astype(np.float32)
-
         # Limit BLAS threads if threadpoolctl is available
         if HAS_THREADPOOLCTL:
             with threadpool_limits(limits=self.num_threads):
-                np.dot(A, B)
+                np.dot(self.A, self.B)
         else:
-            np.dot(A, B)
+            np.dot(self.A, self.B)
 
     def get_flops(self, iterations: int) -> int:
         return calculate_flops_gemm(self.matrix_size, iterations)
@@ -111,6 +116,9 @@ class CpuSingleCoreBLASBenchmark(BaseBenchmark):
                  measure_iters: int = 5):
         super().__init__(warmup_iters, measure_iters)
         self.matrix_size = matrix_size or self.MATRIX_SIZE
+        # Pre-generate matrices to exclude generation time from measurement
+        self.A = np.random.random((self.matrix_size, self.matrix_size)).astype(np.float32)
+        self.B = np.random.random((self.matrix_size, self.matrix_size)).astype(np.float32)
 
     def get_info(self) -> Dict[str, Any]:
         return {
@@ -123,24 +131,24 @@ class CpuSingleCoreBLASBenchmark(BaseBenchmark):
         }
 
     def run_iteration(self) -> None:
-        # Generate matrices
-        A = np.random.random((self.matrix_size, self.matrix_size)).astype(np.float32)
-        B = np.random.random((self.matrix_size, self.matrix_size)).astype(np.float32)
-
         # Limit to 1 BLAS thread
         if HAS_THREADPOOLCTL:
             with threadpool_limits(limits=1):
-                np.dot(A, B)
+                np.dot(self.A, self.B)
         else:
-            np.dot(A, B)
+            np.dot(self.A, self.B)
 
     def get_flops(self, iterations: int) -> int:
         return calculate_flops_gemm(self.matrix_size, iterations)
 
 
-def run_all_cpu_benchmarks() -> list:
+def run_all_cpu_benchmarks(duration: float = None, show_progress: bool = True) -> list:
     """
     Run all CPU benchmarks and return results.
+
+    Args:
+        duration: Target duration per benchmark in seconds
+        show_progress: Whether to show progress bars
 
     Returns:
         List of benchmark result dictionaries.
@@ -149,26 +157,27 @@ def run_all_cpu_benchmarks() -> list:
 
     print("Running CPU benchmarks...")
 
-    # Single-core pure Python
-    print("  [1/3] Single-core (scalar operations)...")
-    bench1 = CpuSingleCoreBenchmark()
-    result1 = bench1.benchmark()
-    results.append(result1)
-    print(f"       Result: {result1['flops_formatted']}")
+    benchmarks = [
+        ("Single-core (scalar operations)", CpuSingleCoreBenchmark()),
+        ("Single-core BLAS (matrix multiplication)", CpuSingleCoreBLASBenchmark()),
+        ("All-cores BLAS (matrix multiplication)", CpuAllCoresBenchmark()),
+    ]
 
-    # Single-core BLAS
-    print("  [2/3] Single-core BLAS (matrix multiplication)...")
-    bench2 = CpuSingleCoreBLASBenchmark()
-    result2 = bench2.benchmark()
-    results.append(result2)
-    print(f"       Result: {result2['flops_formatted']}")
+    for i, (name, bench) in enumerate(benchmarks, 1):
+        if duration:
+            bench.timer.target_duration = duration
 
-    # All-cores BLAS
-    print("  [3/3] All-cores BLAS (matrix multiplication)...")
-    bench3 = CpuAllCoresBenchmark()
-    result3 = bench3.benchmark()
-    results.append(result3)
-    print(f"       Result: {result3['flops_formatted']}")
+        if show_progress and HAS_TQDM and duration:
+            # Show progress bar for duration-based benchmarks
+            print(f"  [{i}/3] {name}...")
+            result = bench.benchmark()
+            results.append(result)
+            print(f"       Result: {result['flops_formatted']}")
+        else:
+            print(f"  [{i}/3] {name}...")
+            result = bench.benchmark()
+            results.append(result)
+            print(f"       Result: {result['flops_formatted']}")
 
     print("✓ CPU benchmarks complete.\n")
 

@@ -83,6 +83,12 @@ The HTML report automatically includes all hardware ever benchmarked!
         default=None,
         help='Number of iterations (default: auto)'
     )
+    parser.add_argument(
+        '--duration',
+        type=float,
+        default=10.0,
+        help='Target duration per benchmark in seconds (default: 10.0, use 60 for 1 minute)'
+    )
 
     # Display options
     parser.add_argument(
@@ -202,14 +208,15 @@ def main():
     try:
         # CPU benchmarks
         if not args.gpu_only:
-            cpu_results = cpu.run_all_cpu_benchmarks()
+            cpu_results = cpu.run_all_cpu_benchmarks(duration=args.duration)
             all_results.extend(cpu_results)
 
         # GPU benchmarks
         if not args.cpu_only:
             gpu_results = gpu.run_all_gpu_benchmarks(
                 matrix_size=args.matrix_size,
-                iterations=args.iterations
+                iterations=args.iterations,
+                duration=args.duration
             )
             all_results.extend(gpu_results)
 
