@@ -191,6 +191,13 @@ class BenchmarkReport:
         self.df['timestamp'] = pd.to_datetime(self.df['timestamp'])
         self.df['date'] = self.df['timestamp'].dt.date
 
+        # Filter out records with Unknown CPU
+        before_count = len(self.df)
+        self.df = self.df[~self.df['cpu_model'].str.contains('Unknown', case=False, na=False)]
+        filtered_count = before_count - len(self.df)
+        if filtered_count > 0:
+            print(f"Filtered out {filtered_count} records with Unknown CPU")
+
         # Figures to include in report
         self.figures: List[Tuple[str, str, go.Figure]] = []  # (title, div_id, figure)
 

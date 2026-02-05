@@ -7,6 +7,10 @@ A unified benchmarking solution supporting:
 - GPU: NVIDIA (CUDA), Apple (MPS), Intel, AMD - all precision levels
 """
 
+# Fix OpenMP library conflict on Windows (NumPy + PyTorch both link OpenMP)
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
 from .core import BaseBenchmark, fmt_flops, calculate_flops_gemm, RobustTimer, BenchmarkResults
 from .detect import get_cpu_info, get_gpu_info, get_system_info
 from .cpu import CpuSingleCoreBenchmark, CpuAllCoresBenchmark

@@ -2,6 +2,7 @@
 GPU benchmarking - supports CUDA, MPS, XPU with all precision levels.
 """
 import time
+import math
 from typing import Dict, Any, List, Tuple, Optional
 
 try:
@@ -11,6 +12,42 @@ except ImportError:
     HAS_TQDM = False
 
 from .core import BaseBenchmark, calculate_flops_gemm
+
+
+def calculate_matrix_size_from_memory(memory_gb: float) -> int:
+    """
+    Calculate optimal matrix size based on GPU memory.
+
+    Uses approximately 1/10 of GPU memory for the benchmark.
+    For a GEMM operation C = A @ B, we need 3 matrices.
+    With FP32 (4 bytes per element), memory per element = 4 bytes.
+    Total memory = 3 * N^2 * 4 bytes = 12 * N^2 bytes
+
+    Args:
+        memory_gb: GPU memory in GB
+
+    Returns:
+        Matrix size (power of 2)
+    """
+    if memory_gb <= 0:
+        # Unknown memory, use default
+        return 2048
+
+    # Use 1/10 of memory for the benchmark
+    memory_bytes = memory_gb * 1024**3 / 10
+
+    # For FP32: 3 matrices * N^2 * 4 bytes
+    # N^2 = memory_bytes / 12
+    # N = sqrt(memory_bytes / 12)
+    n = math.sqrt(memory_bytes / 12)
+
+    # Find nearest power of 2
+    power = round(math.log2(n))
+
+    # Clamp to reasonable range
+    power = max(8, min(17, power))  # 256 to 131072
+
+    return 2 ** power
 
 
 class GpuBenchmark:
@@ -27,7 +64,7 @@ class GpuBenchmark:
     """
 
     # Default benchmark parameters
-    MATRIX_SIZE = 2048
+    MATRIX_SIZE = 8192
     ITERATIONS = 50
 
     # Data type configurations
@@ -75,30 +112,40 @@ class GpuBenchmark:
                 if backend == 'cuda':
                     for i in range(torch.cuda.device_count()):
                         props = torch.cuda.get_device_properties(i)
+                        memory_gb = props.total_memory / (1024 ** 3)
+                        matrix_size = calculate_matrix_size_from_memory(memory_gb)
                         devices.append({
                             'backend': backend,
                             'index': i,
                             'name': props.name,
-                            'memory_gb': props.total_memory / (1024 ** 3),
+                            'memory_gb': memory_gb,
                             'compute_capability': f"{props.major}.{props.minor}",
+                            'matrix_size': matrix_size,
                         })
                 elif backend == 'mps':
+                    # For MPS, try to get estimated memory
+                    # Apple Silicon GPU memory is shared with system RAM
+                    # Use a conservative default
                     devices.append({
                         'backend': backend,
                         'index': 0,
                         'name': 'Apple MPS',
                         'memory_gb': 0,
                         'compute_capability': 'MPS',
+                        'matrix_size': self.matrix_size,  # Use provided or default
                     })
                 elif backend == 'xpu':
                     for i in range(torch.xpu.device_count()):
                         props = torch.xpu.get_device_properties(i)
+                        memory_gb = getattr(props, 'total_memory', 0) / (1024 ** 3)
+                        matrix_size = calculate_matrix_size_from_memory(memory_gb)
                         devices.append({
                             'backend': backend,
                             'index': i,
                             'name': getattr(props, 'name', f'Intel XPU {i}'),
-                            'memory_gb': getattr(props, 'total_memory', 0) / (1024 ** 3),
+                            'memory_gb': memory_gb,
                             'compute_capability': 'XPU',
+                            'matrix_size': matrix_size,
                         })
         except ImportError:
             pass
@@ -224,13 +271,53 @@ class GpuBenchmark:
         device_index = device['index']
         device_obj = torch.device(f"{backend}:{device_index}")
 
-        # Create tensors (reuse to reduce overhead) - pre-generate before timing
-        a, b = self._create_tensors(self.matrix_size, dtype, device_obj)
+        # Use device-specific matrix size
+        matrix_size = device.get('matrix_size', self.matrix_size)
 
-        # Test matmul support
+        # Create tensors (reuse to reduce overhead) - pre-generate before timing
+        a, b = self._create_tensors(matrix_size, dtype, device_obj)
+
+        # Test matmul support - more comprehensive test
         try:
+            # Do a full test including synchronization to catch CUDA kernel errors
             _ = a @ b
             self._synchronize(device_obj)
+            # Run a few more iterations to ensure stability
+            for _ in range(3):
+                _ = a @ b
+                self._synchronize(device_obj)
+        except (RuntimeError, Exception) as e:
+            error_msg = str(e)
+            # Check for common CUDA errors
+            if 'no kernel image' in error_msg or 'no kernel' in error_msg:
+                return {
+                    'name': f"{backend}:{device_index}",
+                    'type': 'gpu',
+                    'backend': backend,
+                    'dtype': dtype_name,
+                    'device_model': device['name'],
+                    'matrix_size': matrix_size,
+                    'error': 'dtype not supported on this GPU (upgrade PyTorch)',
+                    'flops_per_sec': 0,
+                    'flops_formatted': 'N/A (not supported)',
+                }
+            return {
+                'name': f"{backend}:{device_index}",
+                'type': 'gpu',
+                'backend': backend,
+                'dtype': dtype_name,
+                'device_model': device['name'],
+                'matrix_size': matrix_size,
+                'error': error_msg[:100],
+                'flops_per_sec': 0,
+                'flops_formatted': 'N/A (error)',
+            }
+
+        # Warmup with error handling
+        try:
+            for _ in range(warmup_iters):
+                _ = a @ b
+                self._synchronize(device_obj)
         except Exception as e:
             return {
                 'name': f"{backend}:{device_index}",
@@ -238,59 +325,107 @@ class GpuBenchmark:
                 'backend': backend,
                 'dtype': dtype_name,
                 'device_model': device['name'],
-                'matrix_size': self.matrix_size,
-                'error': str(e),
+                'matrix_size': matrix_size,
+                'error': f'warmup failed: {str(e)[:50]}...',
                 'flops_per_sec': 0,
-                'flops_formatted': 'N/A (not supported)',
+                'flops_formatted': 'N/A (error)',
             }
-
-        # Warmup
-        for _ in range(warmup_iters):
-            _ = a @ b
-            self._synchronize(device_obj)
 
         # Determine number of iterations
         if self.duration is not None:
             # Calibrate: run a few times to estimate single iteration time
-            calib_times = []
-            for _ in range(5):
-                start = time.perf_counter()
+            try:
+                calib_times = []
+                for _ in range(5):
+                    start = time.perf_counter()
+                    _ = a @ b
+                    self._synchronize(device_obj)
+                    calib_times.append(time.perf_counter() - start)
+                avg_time = sum(calib_times) / len(calib_times)
+                measure_iters = max(1, int(self.duration / avg_time))
+            except Exception as e:
+                return {
+                    'name': f"{backend}:{device_index}",
+                    'type': 'gpu',
+                    'backend': backend,
+                    'dtype': dtype_name,
+                    'device_model': device['name'],
+                    'matrix_size': matrix_size,
+                    'error': f'calibration failed: {str(e)[:50]}...',
+                    'flops_per_sec': 0,
+                    'flops_formatted': 'N/A (error)',
+                }
+
+        # Measurement with error handling and timeout
+        times = []
+        timeout_seconds = 60  # 1 minute timeout per precision
+        start_time = time.perf_counter()
+
+        try:
+            for i in range(measure_iters):
+                # Check timeout before each iteration
+                elapsed = time.perf_counter() - start_time
+                if elapsed >= timeout_seconds:
+                    # Timeout reached, use collected data
+                    if times:
+                        break
+                    else:
+                        return {
+                            'name': f"{backend}:{device_index}",
+                            'type': 'gpu',
+                            'backend': backend,
+                            'dtype': dtype_name,
+                            'device_model': device['name'],
+                            'matrix_size': matrix_size,
+                            'error': f'timeout after {timeout_seconds}s (precision too slow)',
+                            'flops_per_sec': 0,
+                            'flops_formatted': 'N/A (timeout)',
+                        }
+
+                iter_start = time.perf_counter()
                 _ = a @ b
                 self._synchronize(device_obj)
-                calib_times.append(time.perf_counter() - start)
-            avg_time = sum(calib_times) / len(calib_times)
-            measure_iters = max(1, int(self.duration / avg_time))
+                times.append(time.perf_counter() - iter_start)
 
-        # Measurement
-        times = []
-        for i in range(measure_iters):
-            start = time.perf_counter()
-            _ = a @ b
-            self._synchronize(device_obj)
-            times.append(time.perf_counter() - start)
-
-            # Update progress bar if provided
-            if progress_bar and measure_iters > 1:
-                progress = int((i + 1) / measure_iters * 100)
-                progress_bar.n = progress
-                progress_bar.refresh()
+                # Update progress bar if provided
+                if progress_bar and measure_iters > 1:
+                    progress = int((i + 1) / measure_iters * 100)
+                    progress_bar.n = progress
+                    progress_bar.refresh()
+        except Exception as e:
+            return {
+                'name': f"{backend}:{device_index}",
+                'type': 'gpu',
+                'backend': backend,
+                'dtype': dtype_name,
+                'device_model': device['name'],
+                'matrix_size': matrix_size,
+                'error': f'benchmark failed: {str(e)[:50]}...',
+                'flops_per_sec': 0,
+                'flops_formatted': 'N/A (error)',
+            }
 
         # Calculate median
         import numpy as np
         median_time = np.median(times)
 
         # Calculate FLOPS
-        total_flops = calculate_flops_gemm(self.matrix_size, 1)
+        total_flops = calculate_flops_gemm(matrix_size, 1)
         flops_per_sec = total_flops / median_time if median_time > 0 else 0
 
-        return {
+        # Check if we hit timeout
+        actual_iters = len(times)
+        total_elapsed = time.perf_counter() - start_time
+        hit_timeout = actual_iters < measure_iters and total_elapsed >= timeout_seconds
+
+        result = {
             'name': f"{backend}:{device_index}",
             'type': 'gpu',
             'backend': backend,
             'dtype': dtype_name,
             'device_model': device['name'],
-            'matrix_size': self.matrix_size,
-            'iterations': measure_iters,
+            'matrix_size': matrix_size,
+            'iterations': actual_iters,
             'stats': {
                 'median': median_time,
                 'mean': float(np.mean(times)),
@@ -301,6 +436,12 @@ class GpuBenchmark:
             'flops_per_sec': flops_per_sec,
             'flops_formatted': self._format_flops(flops_per_sec),
         }
+
+        # Add timeout warning if applicable
+        if hit_timeout:
+            result['timeout'] = f'hit {timeout_seconds}s timeout (used {actual_iters}/{measure_iters} iters)'
+
+        return result
 
     def _format_flops(self, flops: float) -> str:
         """Format FLOPS to appropriate unit."""
@@ -329,7 +470,8 @@ class GpuBenchmark:
 
         for device in self.devices:
             backend = device['backend']
-            print(f"  [{device['name']}]")
+            matrix_size = device.get('matrix_size', self.matrix_size)
+            print(f"  [{device['name']}] (matrix_size={matrix_size}, {device.get('memory_gb', 0):.1f}GB)")
 
             supported_dtypes = self._get_supported_dtypes(device)
 
@@ -344,6 +486,8 @@ class GpuBenchmark:
                         pbar.update(100)  # Ensure it shows 100% complete
                         if 'error' in result:
                             tqdm.write(f"      ✗ ({result['error'][:30]}...)")
+                        elif 'timeout' in result:
+                            tqdm.write(f"      ⚠ {result['flops_formatted']} ({result['timeout']})")
                         else:
                             tqdm.write(f"      ✓ {result['flops_formatted']}")
                 else:
@@ -351,6 +495,9 @@ class GpuBenchmark:
                     result = self._benchmark_device_dtype(device, dtype_name, dtype)
                     if 'error' in result:
                         print(f"✗ ({result['error'][:30]}...)")
+                    elif 'timeout' in result:
+                        print(f"⚠ {result['flops_formatted']}")
+                        print(f"      (Warning: {result['timeout']})")
                     else:
                         print(f"✓ {result['flops_formatted']}")
 

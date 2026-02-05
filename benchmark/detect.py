@@ -40,18 +40,73 @@ def get_cpu_info() -> Dict[str, Any]:
             pass
 
     elif system == 'Windows':
-        try:
-            result = subprocess.run(
-                ['wmic', 'cpu', 'get', 'name', '/value'],
-                capture_output=True, text=True, timeout=10
-            )
-            if result.returncode == 0:
-                for line in result.stdout.split('\n'):
-                    if line.startswith('Name='):
-                        info['model'] = line.split('=', 1)[1].strip()
-                        break
-        except Exception:
-            pass
+        # Try multiple methods for Windows CPU detection
+        cpu_name = None
+
+        # Method 1: wmic (deprecated but still works on many systems)
+        if not cpu_name:
+            try:
+                result = subprocess.run(
+                    ['wmic', 'cpu', 'get', 'name', '/value'],
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.split('\n'):
+                        if line.startswith('Name='):
+                            cpu_name = line.split('=', 1)[1].strip()
+                            break
+            except Exception:
+                pass
+
+        # Method 2: PowerShell (works on Windows 10/11)
+        if not cpu_name:
+            try:
+                result = subprocess.run(
+                    ['powershell', '-Command',
+                     '(Get-CimInstance -ClassName Win32_Processor).Name'],
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    cpu_name = result.stdout.strip()
+            except Exception:
+                pass
+
+        # Method 3: registry query
+        if not cpu_name:
+            try:
+                result = subprocess.run(
+                    ['reg', 'query',
+                     r'HKEY_LOCAL_MACHINE\HARDWARE\DESCRIPTION\System\CentralProcessor\0',
+                     '/v', 'ProcessorNameString'],
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.split('\n'):
+                        if 'ProcessorNameString' in line and 'REG_SZ' in line:
+                            parts = line.split('REG_SZ')
+                            if len(parts) > 1:
+                                cpu_name = parts[1].strip()
+                                break
+            except Exception:
+                pass
+
+        # Method 4: environment variable
+        if not cpu_name:
+            try:
+                result = subprocess.run(
+                    ['echo', '%PROCESSOR_IDENTIFIER%'],
+                    capture_output=True, text=True, timeout=5, shell=True
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    identifier = result.stdout.strip()
+                    if identifier and identifier != '%PROCESSOR_IDENTIFIER%':
+                        # Extract family/model info and format nicely
+                        cpu_name = identifier
+            except Exception:
+                pass
+
+        if cpu_name:
+            info['model'] = cpu_name
 
     elif system == 'Darwin':  # macOS
         try:
@@ -141,7 +196,11 @@ def _detect_apple_gpus(torch, gpus: List[Dict[str, Any]]):
 
         # Try to get memory (approximate for Apple Silicon)
         import sys
-        memory_gb = round((psutil.virtual_memory().total / (1024 ** 3)) / 4, 2)  # Approx 1/4 of RAM
+        try:
+            import psutil
+            memory_gb = round((psutil.virtual_memory().total / (1024 ** 3)) / 4, 2)  # Approx 1/4 of RAM
+        except ImportError:
+            memory_gb = 0
 
         gpus.append({
             'vendor': 'Apple',
