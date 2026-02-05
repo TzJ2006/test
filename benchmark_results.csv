@@ -62,3 +62,13 @@ timestamp,cpu_model,cpu_cores,cpu_frequency,gpu_vendor,gpu_model,gpu_memory_gb,g
 2026-02-05T17:34:41.596037,Intel(R) Xeon(R) Gold 6226 CPU @ 2.70GHz,46,2.70 GHz,NVIDIA,NVIDIA RTX A5000,23.55,8.6,cuda:0,gpu,cuda,FP32,2048,17698.39,0.000971,11880,Linux 5.14.0-570.22.1.el9_6.x86_64,3.11.7,2.3.1+cu121,12.1
 2026-02-05T17:34:41.596050,Intel(R) Xeon(R) Gold 6226 CPU @ 2.70GHz,46,2.70 GHz,NVIDIA,NVIDIA RTX A5000,23.55,8.6,cuda:0,gpu,cuda,FP16,2048,71621.15,0.00024,44800,Linux 5.14.0-570.22.1.el9_6.x86_64,3.11.7,2.3.1+cu121,12.1
 2026-02-05T17:34:41.596062,Intel(R) Xeon(R) Gold 6226 CPU @ 2.70GHz,46,2.70 GHz,NVIDIA,NVIDIA RTX A5000,23.55,8.6,cuda:0,gpu,cuda,BF16,2048,71709.13,0.00024,46980,Linux 5.14.0-570.22.1.el9_6.x86_64,3.11.7,2.3.1+cu121,12.1
+2026-02-05T17:37:46.413138,Apple M4 Pro,14,Unknown,Apple,Apple GPU (MPS),0,MPS,CPU Single-Core,cpu_single_core,cpu,N/A,0,0.06,0.361614,10000000,Darwin 25.2.0,3.12.8,2.7.0,N/A
+2026-02-05T17:37:46.413160,Apple M4 Pro,14,Unknown,Apple,Apple GPU (MPS),0,MPS,CPU Single-Core BLAS,cpu_single_core_blas,cpu,float32,2048,80.02,0.214687,46,Darwin 25.2.0,3.12.8,2.7.0,N/A
+2026-02-05T17:37:46.413164,Apple M4 Pro,14,Unknown,Apple,Apple GPU (MPS),0,MPS,CPU All-Cores (14 threads),cpu_all_cores,cpu,float32,4096,673.31,0.204124,46,Darwin 25.2.0,3.12.8,2.7.0,N/A
+2026-02-05T17:37:46.413167,Apple M4 Pro,14,Unknown,Apple,Apple GPU (MPS),0,MPS,mps:0,gpu,mps,FP32,2048,6424.98,0.002674,3742,Darwin 25.2.0,3.12.8,2.7.0,N/A
+2026-02-05T17:37:46.413194,Apple M4 Pro,14,Unknown,Apple,Apple GPU (MPS),0,MPS,mps:0,gpu,mps,FP16,2048,7081.32,0.002426,4145,Darwin 25.2.0,3.12.8,2.7.0,N/A
+2026-02-05T17:39:32.566011,Apple M4 Pro,14,Unknown,Apple,Apple GPU (MPS),0,MPS,CPU Single-Core,cpu_single_core,cpu,N/A,0,0.08,0.262833,10000000,Darwin 25.2.0,3.12.8,2.7.0,N/A
+2026-02-05T17:39:32.566028,Apple M4 Pro,14,Unknown,Apple,Apple GPU (MPS),0,MPS,CPU Single-Core BLAS,cpu_single_core_blas,cpu,float32,2048,111.14,0.154576,64,Darwin 25.2.0,3.12.8,2.7.0,N/A
+2026-02-05T17:39:32.566032,Apple M4 Pro,14,Unknown,Apple,Apple GPU (MPS),0,MPS,CPU All-Cores (14 threads),cpu_all_cores,cpu,float32,4096,692.14,0.198571,45,Darwin 25.2.0,3.12.8,2.7.0,N/A
+2026-02-05T17:39:32.566035,Apple M4 Pro,14,Unknown,Apple,Apple GPU (MPS),0,MPS,mps:0,gpu,mps,FP32,2048,6428.69,0.002672,3741,Darwin 25.2.0,3.12.8,2.7.0,N/A
+2026-02-05T17:39:32.566056,Apple M4 Pro,14,Unknown,Apple,Apple GPU (MPS),0,MPS,mps:0,gpu,mps,FP16,2048,7083.51,0.002425,4137,Darwin 25.2.0,3.12.8,2.7.0,N/A
