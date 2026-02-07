@@ -86,6 +86,30 @@ python scripts/submit_result.py \
   --github-token "$GITHUB_TOKEN"
 ```
 
+### Upload Prompt in Benchmark CLI
+
+After a benchmark run that saves results, `benchmark.cli` can ask whether to upload the latest row to the public leaderboard.
+
+```bash
+# Use relay URL directly (interactive prompt appears after run, default is No)
+python -m benchmark.cli --relay-url https://your-relay.example.com/submit
+
+# Use environment fallback for relay URL
+export BENCHMARK_RELAY_URL=https://your-relay.example.com/submit
+python -m benchmark.cli
+
+# Non-interactive upload
+python -m benchmark.cli --upload --relay-url https://your-relay.example.com/submit
+
+# Explicitly disable upload flow
+python -m benchmark.cli --no-upload
+```
+
+Notes:
+- Prompt appears only for benchmark runs with saving enabled (`--no-save` disables it).
+- Upload failures do not fail local benchmarking.
+- `--report-only` and `--info` do not trigger upload behavior.
+
 ### Ingestion (Local Test)
 
 ```bash

@@ -427,43 +427,22 @@ class BenchmarkReport:
 
         return fig
 
-    # def create_trend_chart(self) -> go.Figure:
-        """Create historical performance trend chart."""
-        # Filter for significant data points
-        trend_df = self.df[self.df['flops_gflops'] > 0].copy()
-
-        if trend_df.empty:
-            fig = go.Figure()
-            fig.add_annotation(text="No trend data available",
-                             xref="paper", yref="paper",
-                             x=0.5, y=0.5, showarrow=False)
-            return fig
-
+    def create_trend_chart(self) -> go.Figure:
+        """Compatibility fallback: trend chart section is removed from report."""
         fig = go.Figure()
-
-        # CPU trends
-        cpu_df = trend_df[trend_df['benchmark_type'].str.contains('cpu', case=False, na=False)]
-        for cpu in cpu_df['cpu_model'].unique():
-            cpu_data = cpu_df[cpu_df['cpu_model'] == cpu].sort_values('timestamp')
-            for bench_type in cpu_data['benchmark_type'].unique():
-                type_data = cpu_data[cpu_data['benchmark_type'] == bench_type]
-                fig.add_trace(go.Scatter(
-                    name=f"{cpu} ({bench_type})",
-                    x=type_data['timestamp'].tolist(),
-                    y=type_data['flops_gflops'].astype(float).tolist(),
-                    mode='lines+markers',
-                    line=dict(width=2),
-                ))
-
-        fig.update_layout(
-            title='📈 Performance Trends Over Time',
-            xaxis_title='Date',
-            yaxis_title='Performance (GFLOPS)',
-            height=500,
-            template='plotly_dark',
-            hovermode='x unified',
+        fig.add_annotation(
+            text="Historical trend chart is disabled in this report version.",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
         )
-
+        fig.update_layout(
+            title="Historical Trends (Disabled)",
+            height=500,
+            template="plotly_dark",
+        )
         return fig
 
     def _format_leaderboard_table(self, df: pd.DataFrame, title: str) -> str:
@@ -579,13 +558,6 @@ class BenchmarkReport:
         content_parts.append('<h3>Performance by Precision</h3>')
         content_parts.append(f'<div class="chart-container" id="precision-chart"></div>')
         self.figures.append(('precision-chart', prec_fig.to_html(full_html=False, include_plotlyjs=False)))
-
-        # Trend chart
-        print("  Generating trend chart...")
-        trend_fig = self.create_trend_chart()
-        content_parts.append('<h3>Historical Trends</h3>')
-        content_parts.append(f'<div class="chart-container" id="trend-chart"></div>')
-        self.figures.append(('trend-chart', trend_fig.to_html(full_html=False, include_plotlyjs=False)))
 
         content_parts.append('</div>')
 

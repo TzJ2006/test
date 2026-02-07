@@ -9,10 +9,70 @@ Usage:
     python -m benchmark.cli --report-only      # Only generate report, don't run benchmarks
 """
 import argparse
+import os
+import subprocess
 import sys
 from pathlib import Path
 
 from . import detect, cpu, gpu, core, report
+
+
+def is_interactive() -> bool:
+    """Return whether CLI can safely prompt for input."""
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def resolve_relay_url(args) -> str:
+    """Resolve relay URL from CLI flag or environment fallback."""
+    if args.relay_url:
+        return args.relay_url.strip()
+    return os.getenv('BENCHMARK_RELAY_URL', '').strip()
+
+
+def prompt_upload() -> bool:
+    """Ask user whether to upload result; default is No."""
+    answer = input("Upload latest benchmark result to public leaderboard? [y/N]: ").strip().lower()
+    return answer in {'y', 'yes'}
+
+
+def run_upload(output_csv: str, relay_url: str, source_id: str, timeout: int, verbose: bool) -> tuple[bool, str]:
+    """Upload latest CSV row via scripts/submit_result.py."""
+    script_path = Path(__file__).resolve().parents[1] / 'scripts' / 'submit_result.py'
+    if not script_path.exists():
+        return False, f"Upload helper not found: {script_path}"
+
+    cmd = [
+        sys.executable,
+        str(script_path),
+        '--input-csv', output_csv,
+        '--relay-url', relay_url,
+        '--timeout', str(timeout),
+    ]
+    if source_id:
+        cmd.extend(['--source-id', source_id])
+
+    try:
+        result = subprocess.run(
+            cmd,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except Exception as e:  # noqa: BLE001
+        return False, f"Upload execution failed: {e}"
+
+    stdout = (result.stdout or '').strip()
+    stderr = (result.stderr or '').strip()
+
+    if result.returncode == 0:
+        message = stdout or "Upload succeeded."
+        return True, message
+
+    if verbose and stderr:
+        return False, f"Upload failed: {stderr}"
+    if stdout:
+        return False, f"Upload failed: {stdout}"
+    return False, f"Upload failed with exit code {result.returncode}"
 
 
 def parse_args():
@@ -128,6 +188,42 @@ The HTML report automatically includes all hardware ever benchmarked!
         help='Input CSV file for report generation (default: benchmark_results.csv)'
     )
 
+    # Upload options
+    parser.add_argument(
+        '--relay-url',
+        type=str,
+        default='',
+        help='Relay endpoint URL for leaderboard submissions (fallback: BENCHMARK_RELAY_URL)'
+    )
+    parser.add_argument(
+        '--ask-upload',
+        action='store_true',
+        help='Ask whether to upload after benchmark run (interactive terminals only)'
+    )
+    upload_group = parser.add_mutually_exclusive_group()
+    upload_group.add_argument(
+        '--upload',
+        action='store_true',
+        help='Upload automatically after benchmark run (non-interactive friendly)'
+    )
+    upload_group.add_argument(
+        '--no-upload',
+        action='store_true',
+        help='Disable upload flow after benchmark run'
+    )
+    parser.add_argument(
+        '--source-id',
+        type=str,
+        default='',
+        help='Optional source identifier attached to uploaded submission'
+    )
+    parser.add_argument(
+        '--upload-timeout',
+        type=int,
+        default=20,
+        help='Upload request timeout in seconds (default: 20)'
+    )
+
     return parser.parse_args()
 
 
@@ -239,6 +335,52 @@ def main():
                 print(f"Warning: CSV file not found, skipping report generation")
             except Exception as e:
                 print(f"Warning: Error generating report: {e}")
+
+        # Optional upload flow (only after saved benchmark runs)
+        if not args.no_save:
+            relay_url = resolve_relay_url(args)
+            upload_requested = args.upload
+            upload_allowed = not args.no_upload
+
+            if not upload_allowed:
+                if args.verbose:
+                    print("Upload skipped (--no-upload).")
+            elif upload_requested:
+                if not relay_url:
+                    print("Warning: upload requested but no relay URL configured (--relay-url or BENCHMARK_RELAY_URL).")
+                else:
+                    ok, msg = run_upload(
+                        output_csv=args.output,
+                        relay_url=relay_url,
+                        source_id=args.source_id,
+                        timeout=args.upload_timeout,
+                        verbose=args.verbose,
+                    )
+                    if ok:
+                        print(f"✓ {msg}")
+                    else:
+                        print(f"Warning: {msg}")
+            elif is_interactive():
+                # Default interactive behavior is opt-in prompt, only when endpoint is configured.
+                if not relay_url:
+                    if args.ask_upload:
+                        print("Upload prompt skipped: no relay URL configured (--relay-url or BENCHMARK_RELAY_URL).")
+                else:
+                    if prompt_upload():
+                        ok, msg = run_upload(
+                            output_csv=args.output,
+                            relay_url=relay_url,
+                            source_id=args.source_id,
+                            timeout=args.upload_timeout,
+                            verbose=args.verbose,
+                        )
+                        if ok:
+                            print(f"✓ {msg}")
+                        else:
+                            print(f"Warning: {msg}")
+            else:
+                if args.verbose:
+                    print("Upload skipped in non-interactive mode (use --upload).")
 
     except KeyboardInterrupt:
         print("\n\nBenchmark interrupted by user.")
