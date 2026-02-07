@@ -17,6 +17,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
+from plotly.offline import get_plotlyjs_version
 
 
 class BenchmarkReport:
@@ -44,7 +45,7 @@ class BenchmarkReport:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Benchmark Results Report</title>
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="{plotly_js_cdn}"></script>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
@@ -189,7 +190,15 @@ class BenchmarkReport:
         # Load and process data
         self.df = pd.read_csv(self.csv_path)
         self.df['timestamp'] = pd.to_datetime(self.df['timestamp'])
+        self.df['flops_gflops'] = pd.to_numeric(self.df['flops_gflops'], errors='coerce')
         self.df['date'] = self.df['timestamp'].dt.date
+
+        # Remove rows that cannot be plotted numerically
+        before_numeric_filter = len(self.df)
+        self.df = self.df.dropna(subset=['timestamp', 'flops_gflops'])
+        numeric_filtered = before_numeric_filter - len(self.df)
+        if numeric_filtered > 0:
+            print(f"Filtered out {numeric_filtered} records with invalid numeric/time values")
 
         # Filter out records with Unknown CPU
         before_count = len(self.df)
@@ -200,6 +209,11 @@ class BenchmarkReport:
 
         # Figures to include in report
         self.figures: List[Tuple[str, str, go.Figure]] = []  # (title, div_id, figure)
+
+    def _plotly_cdn_url(self) -> str:
+        """Use a pinned Plotly JS version compatible with installed plotly.py."""
+        version = get_plotlyjs_version()
+        return f"https://cdn.plot.ly/plotly-{version}.min.js"
 
     def _get_summary_stats(self) -> Dict[str, any]:
         """Get summary statistics including date range."""
@@ -291,15 +305,22 @@ class BenchmarkReport:
         # Create separate chart for each benchmark type
         fig = go.Figure()
 
-        colors = {'cpu_single_core': '#FF6B6B', 'cpu_single_core_blas': '#4ECDC4',
-                  'cpu_all_cores': '#45B7D1', 'cpu_all_cores': '#96CEB4'}
+        colors = {
+            'cpu_single_core': '#FF6B6B',
+            'cpu_single_core_blas': '#4ECDC4',
+            'cpu_all_cores': '#96CEB4',
+        }
 
         for bench_type in latest['benchmark_type'].unique():
-            type_df = latest[latest['benchmark_type'] == bench_type]
+            type_df = latest[latest['benchmark_type'] == bench_type].sort_values(
+                'flops_gflops', ascending=False
+            )
+            x_values = type_df['cpu_model'].astype(str).tolist()
+            y_values = type_df['flops_gflops'].astype(float).tolist()
             fig.add_trace(go.Bar(
                 name=bench_type.replace('_', ' ').title(),
-                x=type_df['cpu_model'],
-                y=type_df['flops_gflops'],
+                x=x_values,
+                y=y_values,
                 marker_color=colors.get(bench_type, '#95E1D3'),
             ))
 
@@ -311,6 +332,7 @@ class BenchmarkReport:
             height=500,
             template='plotly_dark',
             hovermode='x unified',
+            yaxis=dict(rangemode='tozero'),
         )
 
         return fig
@@ -332,20 +354,24 @@ class BenchmarkReport:
         # Get best result per GPU
         best = gpu_df.sort_values('flops_gflops', ascending=False).drop_duplicates(
             ['gpu_model', 'gpu_vendor'], keep='first'
-        )
+        ).sort_values('flops_gflops', ascending=False).reset_index(drop=True)
 
         # Create labels with vendor
         best['label'] = best['gpu_vendor'] + ' ' + best['gpu_model']
+        labels = best['label'].astype(str).tolist()
+        scores = best['flops_gflops'].astype(float).tolist()
+        score_text = [f'{score:,.0f}' for score in scores]
 
         fig = go.Figure(data=[
             go.Bar(
-                x=best['label'],
-                y=best['flops_gflops'],
+                x=labels,
+                y=scores,
                 marker=dict(
-                    color=best['flops_gflops'],
+                    color=scores,
                     colorscale='Viridis',
+                    showscale=False,  # Hide colorbar
                 ),
-                text=best['flops_gflops'].apply(lambda x: f'{x:,.0f}'),
+                text=score_text,
                 textposition='outside',
             )
         ])
@@ -356,6 +382,7 @@ class BenchmarkReport:
             yaxis_title='Performance (GFLOPS)',
             height=500,
             template='plotly_dark',
+            yaxis=dict(rangemode='tozero'),
         )
 
         return fig
@@ -380,11 +407,11 @@ class BenchmarkReport:
         fig = go.Figure()
 
         for gpu in best['gpu_model'].unique():
-            gpu_data = best[best['gpu_model'] == gpu]
+            gpu_data = best[best['gpu_model'] == gpu].sort_values('flops_gflops', ascending=False)
             fig.add_trace(go.Bar(
                 name=gpu,
-                x=gpu_data['dtype'],
-                y=gpu_data['flops_gflops'],
+                x=gpu_data['dtype'].astype(str).tolist(),
+                y=gpu_data['flops_gflops'].astype(float).tolist(),
             ))
 
         fig.update_layout(
@@ -395,11 +422,12 @@ class BenchmarkReport:
             height=500,
             template='plotly_dark',
             hovermode='x unified',
+            yaxis=dict(rangemode='tozero'),
         )
 
         return fig
 
-    def create_trend_chart(self) -> go.Figure:
+    # def create_trend_chart(self) -> go.Figure:
         """Create historical performance trend chart."""
         # Filter for significant data points
         trend_df = self.df[self.df['flops_gflops'] > 0].copy()
@@ -421,8 +449,8 @@ class BenchmarkReport:
                 type_data = cpu_data[cpu_data['benchmark_type'] == bench_type]
                 fig.add_trace(go.Scatter(
                     name=f"{cpu} ({bench_type})",
-                    x=type_data['timestamp'],
-                    y=type_data['flops_gflops'],
+                    x=type_data['timestamp'].tolist(),
+                    y=type_data['flops_gflops'].astype(float).tolist(),
                     mode='lines+markers',
                     line=dict(width=2),
                 ))
@@ -573,13 +601,22 @@ class BenchmarkReport:
             unique_gpus=stats['unique_gpus'],
             date_range=stats['date_range'],
             total_runs=stats['total_runs'],
+            plotly_js_cdn=self._plotly_cdn_url(),
             content=content,
         )
 
         # Insert Plotly figures
+        # Note: to_html() wraps content in <div>, so we need to strip the outer div tags
+        # to avoid nested div issues with the chart-container
         for div_id, fig_html in self.figures:
+            # Strip the outer <div> and </div> from fig_html
+            fig_html_stripped = fig_html.strip()
+            if fig_html_stripped.startswith('<div>'):
+                fig_html_stripped = fig_html_stripped[5:]  # Remove '<div>'
+            if fig_html_stripped.endswith('</div>'):
+                fig_html_stripped = fig_html_stripped[:-6]  # Remove '</div>'
             html = html.replace(f'<div class="chart-container" id="{div_id}"></div>',
-                               f'<div class="chart-container" id="{div_id}">{fig_html}</div>')
+                               f'<div class="chart-container" id="{div_id}">{fig_html_stripped}</div>')
 
         # Write to file
         output_path = Path(output_path)

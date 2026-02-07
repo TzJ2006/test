@@ -54,6 +54,60 @@ python -m benchmark.cli --duration 60
 - **CSV file**: `benchmark_results.csv` - All historical data (append mode)
 - **HTML report**: `benchmark_report.html` - Interactive leaderboards and charts
 
+## Website Auto-Update Pipeline
+
+This repo includes a GitHub-based pipeline to publish `benchmark_report.html` as a website and keep it updated from queued submissions.
+
+### Workflow Files
+
+- `.github/workflows/accept-submission.yml`
+  - Receives `repository_dispatch` event `benchmark_submission`
+  - Appends payload to `data/pending_submissions.ndjson`
+- `.github/workflows/daily-publish.yml`
+  - Runs daily (`00:00 UTC`) or manually
+  - Ingests queue with strict validation/dedupe/sanitization
+  - Regenerates `benchmark_report.html` when dataset changes
+- `.github/workflows/pages-deploy.yml`
+  - Deploys `benchmark_report.html` to GitHub Pages
+
+### Submission Helpers
+
+```bash
+# Dry-run preview from latest CSV row
+python scripts/submit_result.py --dry-run
+
+# Submit latest row to a relay endpoint
+python scripts/submit_result.py --relay-url https://your-relay.example.com/submit
+
+# Trusted direct GitHub dispatch (token required)
+python scripts/submit_result.py \
+  --github-owner YOUR_ORG \
+  --github-repo YOUR_REPO \
+  --github-token "$GITHUB_TOKEN"
+```
+
+### Ingestion (Local Test)
+
+```bash
+python scripts/ingest_submissions.py \
+  --pending-file data/pending_submissions.ndjson \
+  --csv-path benchmark_results.csv \
+  --rejected-file data/rejected_submissions.ndjson \
+  --log-file data/ingest_log.json
+```
+
+Queue/audit files:
+- `data/pending_submissions.ndjson`: raw queued submissions
+- `data/rejected_submissions.ndjson`: rejected records with reasons
+- `data/ingest_log.json`: latest ingest summary
+
+### GitHub Setup Checklist
+
+- Enable **GitHub Pages** with source set to **GitHub Actions**.
+- Ensure workflow permissions allow repository write access for Actions.
+- If using direct dispatch, use a token that can call repository dispatch events.
+- For public intake, run a separate relay service that validates/rate-limits requests and forwards payloads to `repository_dispatch`.
+
 ## Benchmark Types
 
 ### CPU Benchmarks
